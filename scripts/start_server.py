@@ -74,9 +74,7 @@ def send_telegram_message(text, screenshot_path=None):
         print(f"📬 [Telegram] 请求发生网络错误: {e}")
 
 def remove_ad_element(page):
-    """
-    清除广告的函数：通过 JavaScript 查找并彻底移除指定的谷歌广告容器 DIV 元素
-    """
+    """清除广告的函数"""
     print("🧹 [广告清理] 正在尝试清除页面中的广告遮罩层...")
     try:
         page.evaluate("""
@@ -124,19 +122,6 @@ def main():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
         )
 
-        # 核心：通过 Playwright 的 add_init_script 注入全局样式，强制将所有字库映射为系统自带的标准英文字体，杜绝乱码方块
-        context.add_init_script("""
-            const style = document.createElement('style');
-            style.innerHTML = `
-                * {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-                }
-            `;
-            document.addEventListener("DOMContentLoaded", () => {
-                document.head.appendChild(style);
-            });
-        """)
-
         # 解析并注入 Cookie
         cookies_list = []
         for item in cookie_str.split(";"):
@@ -164,23 +149,50 @@ def main():
             remove_ad_element(page)
             time.sleep(1)
 
-            # 2. 定位并点击 START 按钮
-            print("🖱️ 正在寻找并点击 START 按钮...")
+            # 2. 定位 START 按钮并使用【真实模拟鼠标移动和点击】
+            print("🖱️ 正在寻找 START 按钮并准备模拟真人鼠标移动点击...")
             
             start_btn = page.locator("button.console-btn.start").filter(has_text="启动")
             if not start_btn.count():
                 start_btn = page.locator("//button[contains(@class, 'console-btn') and contains(@class, 'start') and (.//span[text()='启动'] or .//span[text()='Start'])]")
 
             if start_btn.count() > 0:
-                start_btn.first.click(force=True, timeout=10000)
-                print("🚀 成功触发 START 按钮点击！")
+                # 滚动到按钮可见区域
+                start_btn.first.scroll_into_view_if_needed()
+                time.sleep(1)
+                
+                # 获取按钮在页面上的位置
+                box = start_btn.first.bounding_box()
+                if box:
+                    # 计算按钮中心点坐标
+                    target_x = box["x"] + box["width"] / 2
+                    target_y = box["y"] + box["height"] / 2
+                    
+                    print(f"🎯 按钮坐标定位成功，准备移动鼠标至: ({target_x}, {target_y})")
+                    
+                    # 模拟真实鼠标：先移动到按钮附近（如上方偏左一点），再平滑移入中心
+                    page.mouse.move(target_x - 50, target_y - 20)
+                    time.sleep(0.3)
+                    page.mouse.move(target_x, target_y, steps=5)  # 分步平滑移动轨迹
+                    time.sleep(0.2)
+                    
+                    # 模拟真实按下和释放
+                    page.mouse.down()
+                    time.sleep(0.15)  # 模仿人类按下鼠标的短暂停留
+                    page.mouse.up()
+                    
+                    print("🚀 已成功完成真实鼠标轨迹模拟点击！")
+                else:
+                    # 兜底常规点击
+                    start_btn.first.click(force=True)
+                    print("🚀 使用常规强力点击触发！")
                 
                 time.sleep(4)
                 
                 page.screenshot(path=screenshot_path, full_page=False)
                 print(f"📸 已成功生成截图: {screenshot_path}")
                 
-                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击 (已修复字体)**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已通过强制字体注入解决乱码并点击 `START` 按钮，请查看最新截图。"
+                msg = f"🚀 **[FalixNodes] 模拟真人鼠标开机点击**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已采用真实鼠标轨迹模拟点击 `START` 按钮，请查看截图。"
                 send_telegram_message(msg, screenshot_path=screenshot_path)
             else:
                 print("❌ 未能在页面上找到 START 按钮元素。")
