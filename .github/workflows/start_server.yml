@@ -3,6 +3,7 @@ name: Trigger FalixNodes Start
 on:
   repository_dispatch:
     types: [start_minecraft_server]
+  workflow_dispatch: # 允许手动触发
 
 jobs:
   start-server:
