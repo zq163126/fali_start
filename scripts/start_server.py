@@ -1,56 +1,16 @@
 import os
-import time
 import json
 import urllib.request
 import urllib.error
-from playwright.sync_api import sync_playwright
 
-def send_telegram_message(text, screenshot_path=None):
-    """独立的 Telegram 消息与图片发送模块（使用 Python 自带的 urllib）"""
+def send_telegram_message(text):
+    """独立的 Telegram 消息发送模块（纯 urllib，无第三方依赖）"""
     tg_token = os.environ.get("TG_BOT_TOKEN")
     chat_id = os.environ.get("TG_CHAT_ID")
     if not tg_token or not chat_id:
         print("ℹ️ 未配置 Telegram 环境变量 (TG_BOT_TOKEN / TG_CHAT_ID)，跳过通知发送。")
         return
         
-    if screenshot_path and os.path.exists(screenshot_path):
-        url = f"https://api.telegram.org/bot{tg_token}/sendPhoto"
-        try:
-            boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-            body = bytearray()
-            
-            body.extend(f"--{boundary}\r\n".encode("utf-8"))
-            body.extend(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
-            body.extend(f"{chat_id}\r\n".encode("utf-8"))
-            
-            body.extend(f"--{boundary}\r\n".encode("utf-8"))
-            body.extend(b'Content-Disposition: form-data; name="caption"\r\n\r\n')
-            body.extend(text.encode("utf-8"))
-            
-            body.extend(f"--{boundary}\r\n".encode("utf-8"))
-            body.extend(b'Content-Disposition: form-data; name="parse_mode"\r\n\r\n')
-            body.extend(b"Markdown\r\n")
-            
-            body.extend(f"--{boundary}\r\n".encode("utf-8"))
-            body.extend(b'Content-Disposition: form-data; name="photo"; filename="screenshot.png"\r\n')
-            body.extend(b"Content-Type: image/png\r\n\r\n")
-            with open(screenshot_path, "rb") as f:
-                body.extend(f.read())
-            body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
-            
-            req = urllib.request.Request(
-                url,
-                data=body,
-                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                if response.status == 200:
-                    print("📬 [Telegram] 带截图的报警通知发送成功。")
-                    return
-        except Exception as e:
-            print(f"⚠️ [Telegram] 发送图片失败，降级为纯文本发送: {e}")
-
     url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -67,36 +27,11 @@ def send_telegram_message(text, screenshot_path=None):
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status == 200:
-                print("📬 [Telegram] 报警通知发送成功。")
+                print("📬 [Telegram] 消息发送成功。")
             else:
-                print(f"📬 [Telegram] 通知发送失败，状态码: {response.status}")
+                print(f"📬 [Telegram] 消息发送失败，状态码: {response.status}")
     except Exception as e:
         print(f"📬 [Telegram] 请求发生网络错误: {e}")
-
-def remove_ad_element(page):
-    """清除广告的函数"""
-    print("🧹 [广告清理] 正在尝试清除页面中的广告遮罩层...")
-    try:
-        page.evaluate("""
-            () => {
-                const adDiv = document.getElementById('google_ads_iframe_/22152718,22541062400/falixnodes_web_interstitial_0__container__');
-                if (adDiv) {
-                    adDiv.remove();
-                }
-                const allAds = document.querySelectorAll("div[id*='google_ads_iframe'], iframe[src*='googlesyndication'], iframe[src*='safeframe']");
-                allAds.forEach(el => {
-                    let parent = el.closest('div');
-                    if (parent && parent !== document.body) {
-                        parent.remove();
-                    } else {
-                        el.remove();
-                    }
-                });
-            }
-        """)
-        print("✨ [广告清理] 广告元素清除函数执行完毕。")
-    except Exception as e:
-        print(f"⚠️ [广告清理] 清除广告时出现异常: {e}")
 
 def main():
     cookie_str = os.environ.get("FALIX_WEB_COOKIE")
@@ -106,114 +41,102 @@ def main():
         print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
-    console_url = f"https://client.falixnodes.net/server/{server_id}/console"
-    print(f"🌐 正在打开控制面板页面: {console_url}")
+    # 接口地址（根据面板的实际 API 路径调整，通常开机动作为 POST 请求）
+    api_url = f"https://client.falixnodes.net/server/{server_id}/action"  # 如果路径不同可在这里微调
+    
+    # 基础请求头，必须带上 Cookie 以及模拟浏览器的 User-Agent 和 Referer
+    headers = {
+        "Cookie": cookie_str,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": f"https://client.falixnodes.net/server/{server_id}/console",
+        "Accept": "application/json, text/plain, */*"
+    }
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    print("🚀 [API 开机] 开始执行两阶段挑战开机逻辑...")
+
+    try:
+        # ==================== 第一步：发送初探请求 (token为空) ====================
+        payload_step1 = {
+            "action": "start",
+            "token": "",
+            "update": None,
+            "node_id": 5056
+        }
+        
+        print("📤 [Step 1] 正在发送初始 POST 请求 (空 Token)...")
+        req1 = urllib.request.Request(
+            api_url, 
+            data=json.dumps(payload_step1).encode("utf-8"), 
+            headers=headers, 
+            method="POST"
         )
         
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
-            timezone_id="America/New_York",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+        response_data_1 = None
+        try:
+            with urllib.request.urlopen(req1, timeout=15) as res:
+                response_body_1 = res.read().decode("utf-8")
+                print(f"📥 [Step 1] 收到服务器响应: {response_body_1}")
+                response_data_1 = json.loads(response_body_1)
+        except urllib.error.HTTPError as e:
+            # 有时候服务器返回 challenge 时会伴随 400/422 等状态码，我们需要读取它的错误返回体
+            error_body = e.read().decode("utf-8")
+            print(f"📥 [Step 1] 捕获到 HTTP 响应 (状态码 {e.code}): {error_body}")
+            try:
+                response_data_1 = json.loads(error_body)
+            except:
+                raise e
+
+        # 检查是否直接成功
+        if response_data_1 and (response_data_1.get("success") == True or response_data_1.get("status") == "success"):
+            print("🎉 [Step 1] 一次请求直接开机成功！")
+            send_telegram_message(f"🚀 *[FalixNodes] 开机成功*\n\n服务器 ID: `{server_id}` (直接通过初探请求成功)")
+            return
+
+        # ==================== 第二步：解析 Challenge 并二次提交 ====================
+        challenge_token = None
+        if response_data_1:
+            # 尝试从常见的字段中提取 challenge 凭证
+            challenge_token = response_data_1.get("challenge") or response_data_1.get("token") or response_data_1.get("data", {}).get("challenge")
+
+        if not challenge_token:
+            # 如果结构不同，尝试在整个文本里匹配或抛出错误
+            print(f"⚠️ [Step 1] 未能自动提取到 challenge 字段，完整返回内容: {response_data_1}")
+            msg = f"❌ *[FalixNodes] 开机失败*\n\n未能在第一步响应中找到 challenge 凭证。\n返回数据: `{str(response_data_1)[:200]}`"
+            send_telegram_message(msg)
+            exit(1)
+
+        print(f"🔑 [Step 2] 成功获取到动态 Challenge Token: {challenge_token}")
+        print("📤 [Step 2] 正在携带 Challenge Token 发送二次 POST 请求...")
+
+        payload_step2 = {
+            "action": "start",
+            "token": challenge_token,
+            "update": None,
+            "node_id": 5056
+        }
+
+        req2 = urllib.request.Request(
+            api_url, 
+            data=json.dumps(payload_step2).encode("utf-8"), 
+            headers=headers, 
+            method="POST"
         )
 
-        # 解析并注入 Cookie
-        cookies_list = []
-        for item in cookie_str.split(";"):
-            if "=" in item:
-                parts = item.strip().split("=", 1)
-                if len(parts) == 2:
-                    name, value = parts
-                    cookies_list.append({
-                        "name": name.strip(),
-                        "value": value.strip(),
-                        "domain": ".falixnodes.net",
-                        "path": "/"
-                    })
-        if cookies_list:
-            context.add_cookies(cookies_list)
-
-        page = context.new_page()
-        screenshot_path = "screenshot.png"
-
-        try:
-            page.goto(console_url, wait_until="domcontentloaded", timeout=60000)
-            time.sleep(5)
-
-            # 1. 清除广告
-            remove_ad_element(page)
-            time.sleep(1)
-
-            # 2. 定位 START 按钮并使用【真实模拟鼠标移动和点击】
-            print("🖱️ 正在寻找 START 按钮并准备模拟真人鼠标移动点击...")
+        with urllib.request.urlopen(req2, timeout=15) as res2:
+            response_body_2 = res2.read().decode("utf-8")
+            print(f"📥 [Step 2] 服务器最终响应: {response_body_2}")
             
-            start_btn = page.locator("button.console-btn.start").filter(has_text="启动")
-            if not start_btn.count():
-                start_btn = page.locator("//button[contains(@class, 'console-btn') and contains(@class, 'start') and (.//span[text()='启动'] or .//span[text()='Start'])]")
+            # 校验最终结果
+            success_msg = f"🚀 *[FalixNodes] 两阶段 API 开机成功*\n\n服务器 ID: `{server_id}`\n已通过 Challenge 验证并成功触发开机！"
+            print("🎉 开机指令完整交互成功！")
+            send_telegram_message(success_msg)
 
-            if start_btn.count() > 0:
-                # 滚动到按钮可见区域
-                start_btn.first.scroll_into_view_if_needed()
-                time.sleep(1)
-                
-                # 获取按钮在页面上的位置
-                box = start_btn.first.bounding_box()
-                if box:
-                    # 计算按钮中心点坐标
-                    target_x = box["x"] + box["width"] / 2
-                    target_y = box["y"] + box["height"] / 2
-                    
-                    print(f"🎯 按钮坐标定位成功，准备移动鼠标至: ({target_x}, {target_y})")
-                    
-                    # 模拟真实鼠标：先移动到按钮附近（如上方偏左一点），再平滑移入中心
-                    page.mouse.move(target_x - 50, target_y - 20)
-                    time.sleep(0.3)
-                    page.mouse.move(target_x, target_y, steps=5)  # 分步平滑移动轨迹
-                    time.sleep(0.2)
-                    
-                    # 模拟真实按下和释放
-                    page.mouse.down()
-                    time.sleep(0.15)  # 模仿人类按下鼠标的短暂停留
-                    page.mouse.up()
-                    
-                    print("🚀 已成功完成真实鼠标轨迹模拟点击！")
-                else:
-                    # 兜底常规点击
-                    start_btn.first.click(force=True)
-                    print("🚀 使用常规强力点击触发！")
-                
-                time.sleep(4)
-                
-                page.screenshot(path=screenshot_path, full_page=False)
-                print(f"📸 已成功生成截图: {screenshot_path}")
-                
-                msg = f"🚀 **[FalixNodes] 模拟真人鼠标开机点击**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已采用真实鼠标轨迹模拟点击 `START` 按钮，请查看截图。"
-                send_telegram_message(msg, screenshot_path=screenshot_path)
-            else:
-                print("❌ 未能在页面上找到 START 按钮元素。")
-                page.screenshot(path=screenshot_path, full_page=False)
-                msg = f"❌ **[FalixNodes] 开机失败**\n\n**服务器 ID:** `{server_id}`\n**原因:** 未能在页面上找到 START 按钮元素。"
-                send_telegram_message(msg, screenshot_path=screenshot_path)
-                exit(1)
-
-        except Exception as e:
-            error_msg = f"❌ 自动化执行过程中发生异常: {str(e)}"
-            print(error_msg)
-            try:
-                page.screenshot(path=screenshot_path, full_page=False)
-                msg = f"💥 **[FalixNodes] 运行崩溃**\n\n**错误:** `{str(e)}`"
-                send_telegram_message(msg, screenshot_path=screenshot_path)
-            except:
-                msg = f"💥 **[FalixNodes] 运行崩溃**\n\n**错误:** `{str(e)}`"
-                send_telegram_message(msg)
-            exit(1)
-        finally:
-            browser.close()
+    except Exception as e:
+        error_msg = f"💥 *[FalixNodes] API 开机脚本崩溃*\n\n错误信息: `{str(e)}`"
+        print(f"❌ 发生异常: {e}")
+        send_telegram_message(error_msg)
+        exit(1)
 
 if __name__ == "__main__":
     main()
