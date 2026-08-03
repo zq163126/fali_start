@@ -13,8 +13,8 @@ def main():
     url = f"https://client.falixnodes.net/api/v1/servers/{server_id}/console/power"
     
     headers = {
-        "accept": "*/*",
-        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en-US;q=0.7",
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
         "cookie": cookie,
         "referer": f"https://client.falixnodes.net/server/{server_id}/console",
         "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
@@ -27,7 +27,8 @@ def main():
         "content-type": "application/json"
     }
 
-    print("=== 第一步：请求 Challenge (伪造真实 Chrome TLS 指纹) ===")
+    print(f"DEBUG: 正在请求 URL -> {url}")
+    print("=== 第一步：请求 Challenge ===")
     step1_payload = {
         "action": "start",
         "token": "",
@@ -36,13 +37,15 @@ def main():
     }
     
     resp1 = requests.post(url, json=step1_payload, headers=headers, impersonate="chrome120")
+    
     print("Status:", resp1.status_code)
-    print("Response:", resp1.text)
+    print("Response Headers:", dict(resp1.headers))
+    print("Response Text:", resp1.text)
     
     try:
         data1 = resp1.json()
     except Exception as e:
-        print("❌ 响应不是有效的 JSON，可能被 Cloudflare 拦截页面阻断。")
+        print(f"❌ 响应无法解析为 JSON: {e}")
         exit(1)
         
     challenge = data1.get("challenge")
@@ -66,12 +69,13 @@ def main():
     
     resp2 = requests.post(url, json=step2_payload, headers=headers, impersonate="chrome120")
     print("Status:", resp2.status_code)
-    print("Response:", resp2.text)
+    print("Response Headers:", dict(resp2.headers))
+    print("Response Text:", resp2.text)
     
     try:
         data2 = resp2.json()
     except Exception as e:
-        print("❌ 第二步响应解析失败。")
+        print(f"❌ 第二步响应无法解析为 JSON: {e}")
         exit(1)
 
     if data2.get("success") is True:
