@@ -30,8 +30,11 @@ def main():
     }
 
     print(f"DEBUG: 正在请求 URL -> {url}")
-    print("=== 第一步：请求 Challenge ===")
     
+    # 使用 Session 保持会话和 TLS 上下文一致性
+    session = requests.Session()
+    
+    print("=== 第一步：请求 Challenge ===")
     step1_payload = {
         "action": "start",
         "token": "",
@@ -39,7 +42,7 @@ def main():
         "node_id": 5056
     }
     
-    resp1 = requests.post(url, json=step1_payload, headers=headers, impersonate="chrome120")
+    resp1 = session.post(url, json=step1_payload, headers=headers, impersonate="chrome120")
     
     print("Status:", resp1.status_code)
     print("Response Text:", resp1.text)
@@ -58,19 +61,18 @@ def main():
         
     print("-" * 30)
     print(f"成功获取 Challenge: {challenge}")
-    print("等待 1 秒...")
-    time.sleep(1)
+    print("等待 0.5 秒...")
+    time.sleep(0.5)  # 缩短等待时间，避免 challenge 超时
     
     print("=== 第二步：带 Challenge 发送启动指令 ===")
-    # 模拟真实浏览器在第二步时的完整提交结构
     step2_payload = {
         "action": "start",
         "token": challenge,
-        "update": False,
+        "update": None, # 回退为第一步时的 None，保持结构一致
         "node_id": 5056
     }
     
-    resp2 = requests.post(url, json=step2_payload, headers=headers, impersonate="chrome120")
+    resp2 = session.post(url, json=step2_payload, headers=headers, impersonate="chrome120")
     print("Status:", resp2.status_code)
     print("Response Text:", resp2.text)
     
@@ -80,7 +82,7 @@ def main():
         print(f"❌ 第二步响应无法解析为 JSON: {e}")
         exit(1)
 
-    # 兼容处理成功的返回状态（有些面板成功时返回 success: true，或者没有 error 字段）
+    # 检查返回结果
     if data2.get("success") is True or "error" not in data2 or data2.get("error") is None:
         print("🚀 服务器已成功拉起！")
     else:
