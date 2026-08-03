@@ -4,6 +4,7 @@ from curl_cffi import requests
 
 def main():
     cookie = os.environ.get("FALIX_WEB_COOKIE")
+    # 采用更严谨的判空逻辑，确保即使 GitHub Secrets 为空也能自动回退到默认 ID
     server_id = os.environ.get("FALIX_SERVER_ID") or "2874150"
     
     if not cookie:
@@ -12,10 +13,14 @@ def main():
 
     url = f"https://client.falixnodes.net/api/v1/servers/{server_id}/console/power"
     
+    # 模拟真实浏览器的完整标头
     headers = {
         "accept": "application/json, text/plain, */*",
         "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "cache-control": "no-cache",
+        "content-type": "application/json",
         "cookie": cookie,
+        "pragma": "no-cache",
         "referer": f"https://client.falixnodes.net/server/{server_id}/console",
         "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
         "sec-ch-ua-mobile": "?0",
@@ -23,12 +28,12 @@ def main():
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-        "content-type": "application/json"
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
     }
 
     print(f"DEBUG: 正在请求 URL -> {url}")
     print("=== 第一步：请求 Challenge ===")
+    
     step1_payload = {
         "action": "start",
         "token": "",
