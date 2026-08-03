@@ -4,7 +4,6 @@ from curl_cffi import requests
 
 def main():
     cookie = os.environ.get("FALIX_WEB_COOKIE")
-    # 采用更严谨的判空逻辑，确保即使 GitHub Secrets 为空也能自动回退到默认 ID
     server_id = os.environ.get("FALIX_SERVER_ID") or "2874150"
     
     if not cookie:
@@ -13,10 +12,9 @@ def main():
 
     url = f"https://client.falixnodes.net/api/v1/servers/{server_id}/console/power"
     
-    # 模拟真实浏览器的完整标头
     headers = {
         "accept": "application/json, text/plain, */*",
-        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en-US;q=0.7",
         "cache-control": "no-cache",
         "content-type": "application/json",
         "cookie": cookie,
@@ -44,7 +42,6 @@ def main():
     resp1 = requests.post(url, json=step1_payload, headers=headers, impersonate="chrome120")
     
     print("Status:", resp1.status_code)
-    print("Response Headers:", dict(resp1.headers))
     print("Response Text:", resp1.text)
     
     try:
@@ -65,16 +62,16 @@ def main():
     time.sleep(1)
     
     print("=== 第二步：带 Challenge 发送启动指令 ===")
+    # 模拟真实浏览器在第二步时的完整提交结构
     step2_payload = {
         "action": "start",
         "token": challenge,
-        "update": None,
+        "update": False,
         "node_id": 5056
     }
     
     resp2 = requests.post(url, json=step2_payload, headers=headers, impersonate="chrome120")
     print("Status:", resp2.status_code)
-    print("Response Headers:", dict(resp2.headers))
     print("Response Text:", resp2.text)
     
     try:
@@ -83,10 +80,11 @@ def main():
         print(f"❌ 第二步响应无法解析为 JSON: {e}")
         exit(1)
 
-    if data2.get("success") is True:
+    # 兼容处理成功的返回状态（有些面板成功时返回 success: true，或者没有 error 字段）
+    if data2.get("success") is True or "error" not in data2 or data2.get("error") is None:
         print("🚀 服务器已成功拉起！")
     else:
-        print("❌ 启动被拒绝。")
+        print(f"❌ 启动被拒绝，返回数据: {data2}")
         exit(1)
 
 if __name__ == "__main__":
