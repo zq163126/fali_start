@@ -13,7 +13,6 @@ def send_telegram_message(text, screenshot_path=None):
         print("ℹ️ 未配置 Telegram 环境变量 (TG_BOT_TOKEN / TG_CHAT_ID)，跳过通知发送。")
         return
         
-    # 如果有截图，优先通过 sendPhoto 发送
     if screenshot_path and os.path.exists(screenshot_path):
         url = f"https://api.telegram.org/bot{tg_token}/sendPhoto"
         try:
@@ -52,7 +51,6 @@ def send_telegram_message(text, screenshot_path=None):
         except Exception as e:
             print(f"⚠️ [Telegram] 发送图片失败，降级为纯文本发送: {e}")
 
-    # 降级：发送纯文本消息
     url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -107,7 +105,7 @@ def main():
     server_id = os.environ.get("FALIX_SERVER_ID") or "2874150"
     
     if not cookie_str:
-        print("❌ 错误: 未设置 FALISS_WEB_COOKIE 环境变量" if "FALISS" else "❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
+        print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
     console_url = f"https://client.falixnodes.net/server/{server_id}/console"
@@ -119,13 +117,25 @@ def main():
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
         
-        # 强制设置 locale 为英文 ("en-US")，并将时区等环境配置为英文习惯
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
             locale="en-US",
             timezone_id="America/New_York",
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
         )
+
+        # 核心：通过 Playwright 的 add_init_script 注入全局样式，强制将所有字库映射为系统自带的标准英文字体，杜绝乱码方块
+        context.add_init_script("""
+            const style = document.createElement('style');
+            style.innerHTML = `
+                * {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+                }
+            `;
+            document.addEventListener("DOMContentLoaded", () => {
+                document.head.appendChild(style);
+            });
+        """)
 
         # 解析并注入 Cookie
         cookies_list = []
@@ -147,9 +157,8 @@ def main():
         screenshot_path = "screenshot.png"
 
         try:
-            # 访问控制台页面
             page.goto(console_url, wait_until="domcontentloaded", timeout=60000)
-            time.sleep(5)  # 等待页面加载
+            time.sleep(5)
 
             # 1. 清除广告
             remove_ad_element(page)
@@ -168,11 +177,10 @@ def main():
                 
                 time.sleep(4)
                 
-                # 截图保存发送
                 page.screenshot(path=screenshot_path, full_page=False)
                 print(f"📸 已成功生成截图: {screenshot_path}")
                 
-                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击 (英文模式)**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已强制切换英文环境并点击 `START` 按钮，请查看附带截图确认验证码弹窗状态。"
+                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击 (已修复字体)**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已通过强制字体注入解决乱码并点击 `START` 按钮，请查看最新截图。"
                 send_telegram_message(msg, screenshot_path=screenshot_path)
             else:
                 print("❌ 未能在页面上找到 START 按钮元素。")
