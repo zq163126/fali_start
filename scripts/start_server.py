@@ -1,9 +1,12 @@
 import os
 import time
+import json
+import urllib.request
+import urllib.error
 from playwright.sync_api import sync_playwright
 
 def send_telegram_message(text):
-    """独立的 Telegram 消息发送模块"""
+    """独立的 Telegram 消息发送模块（使用 Python 自带的 urllib，无需安装 requests）"""
     tg_token = os.environ.get("TG_BOT_TOKEN")
     chat_id = os.environ.get("TG_CHAT_ID")
     if not tg_token or not chat_id:
@@ -17,12 +20,18 @@ def send_telegram_message(text):
         "parse_mode": "Markdown"
     }
     try:
-        import requests
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code == 200:
-            print("📬 [Telegram] 报警通知发送成功。")
-        else:
-            print(f"📬 [Telegram] 通知发送失败，状态码: {res.status_code}")
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={"Content-Type": "application/json"}, 
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                print("📬 [Telegram] 报警通知发送成功。")
+            else:
+                print(f"📬 [Telegram] 通知发送失败，状态码: {response.status}")
     except Exception as e:
         print(f"📬 [Telegram] 请求发生网络错误: {e}")
 
