@@ -5,14 +5,57 @@ import urllib.request
 import urllib.error
 from playwright.sync_api import sync_playwright
 
-def send_telegram_message(text):
-    """独立的 Telegram 消息发送模块（使用 Python 自带的 urllib，无需安装 requests）"""
+def send_telegram_message(text, screenshot_path=None):
+    """独立的 Telegram 消息与图片发送模块（使用 Python 自带的 urllib）"""
     tg_token = os.environ.get("TG_BOT_TOKEN")
     chat_id = os.environ.get("TG_CHAT_ID")
     if not tg_token or not chat_id:
         print("ℹ️ 未配置 Telegram 环境变量 (TG_BOT_TOKEN / TG_CHAT_ID)，跳过通知发送。")
         return
         
+    # 如果有截图，优先通过 sendPhoto 发送
+    if screenshot_path and os.path.exists(screenshot_path):
+        url = f"https://api.telegram.org/bot{tg_token}/sendPhoto"
+        try:
+            boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+            body = bytearray()
+            
+            # 添加 chat_id 字段
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
+            body.extend(f"{chat_id}\r\n".encode("utf-8"))
+            
+            # 添加 caption 字段
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(b'Content-Disposition: form-data; name="caption"\r\n\r\n')
+            body.extend(text.encode("utf-8"))
+            
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(b'Content-Disposition: form-data; name="parse_mode"\r\n\r\n')
+            body.extend(b"Markdown\r\n")
+            
+            # 添加 photo 文件
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(b'Content-Disposition: form-data; name="photo"; filename="screenshot.png"\r\n')
+            body.extend(b"Content-Type: image/png\r\n\r\n")
+            with open(screenshot_path, "rb") as f:
+                body.extend(f.read())
+            body.extend(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+            
+            req = urllib.request.Request(
+                url,
+                data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                if response.status == 200:
+                    print("📬 [Telegram] 带截图的报警通知发送成功。")
+                    return
+        except Exception as e:
+            print(f"⚠️ [Telegram] 发送图片失败，降级为纯文本发送: {e}")
+
+    # 降级：发送纯文本消息
     url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -43,13 +86,10 @@ def remove_ad_element(page):
     try:
         page.evaluate("""
             () => {
-                // 1. 通过具体的广告容器 ID 直接精准删除
                 const adDiv = document.getElementById('google_ads_iframe_/22152718,22541062400/falixnodes_web_interstitial_0__container__');
                 if (adDiv) {
                     adDiv.remove();
                 }
-                
-                // 2. 兜底策略：移除所有包含 google_ads_iframe 或 safeframe 的遮罩层
                 const allAds = document.querySelectorAll("div[id*='google_ads_iframe'], iframe[src*='googlesyndication'], iframe[src*='safeframe']");
                 allAds.forEach(el => {
                     let parent = el.closest('div');
@@ -103,46 +143,54 @@ def main():
             context.add_cookies(cookies_list)
 
         page = context.new_page()
+        screenshot_path = "screenshot.png"
 
         try:
             # 访问控制台页面
             page.goto(console_url, wait_until="domcontentloaded", timeout=60000)
             time.sleep(5)  # 等待页面加载
 
-            # 1. 在进行任何点击前，必须先调用清除广告函数
+            # 1. 清除广告
             remove_ad_element(page)
             time.sleep(1)
 
-            # 2. 使用完全摒弃随机 ID、鲁棒性极强的多维选择器定位 START 按钮
+            # 2. 定位并点击 START 按钮
             print("🖱️ 正在寻找并点击 START 按钮...")
             
-            # 策略组合：匹配 class 带有 "console-btn start" 且内部包含文本“启动”的按钮
             start_btn = page.locator("button.console-btn.start").filter(has_text="启动")
-            
-            # 如果没找到，再提供一层基于 XPath 结构特征的通用兜底
             if not start_btn.count():
                 start_btn = page.locator("//button[contains(@class, 'console-btn') and contains(@class, 'start') and .//span[text()='启动']]")
 
             if start_btn.count() > 0:
-                # 确保按钮可见并可点击，使用 force=True 应对潜在防呆遮挡
                 start_btn.first.click(force=True, timeout=10000)
                 print("🚀 成功触发 START 按钮点击！")
                 
-                time.sleep(3) # 等待后端响应
+                # 等待 4 秒让页面响应并更新状态
+                time.sleep(4)
                 
-                msg = f"🚀 **[FalixNodes] 网页自动化开机成功**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已通过鲁棒性选择器成功点击网页 `START` 按钮。"
-                send_telegram_message(msg)
+                # 截图保存
+                page.screenshot(path=screenshot_path, full_page=False)
+                print(f"📸 已成功生成截图: {screenshot_path}")
+                
+                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已通过鲁棒性选择器点击 `START` 按钮，请查看附带的实时截图以确认状态。"
+                send_telegram_message(msg, screenshot_path=screenshot_path)
             else:
                 print("❌ 未能在页面上找到 START 按钮元素。")
+                page.screenshot(path=screenshot_path, full_page=False)
                 msg = f"❌ **[FalixNodes] 开机失败**\n\n**服务器 ID:** `{server_id}`\n**原因:** 未能在页面上找到 START 按钮元素。"
-                send_telegram_message(msg)
+                send_telegram_message(msg, screenshot_path=screenshot_path)
                 exit(1)
 
         except Exception as e:
             error_msg = f"❌ 自动化执行过程中发生异常: {str(e)}"
             print(error_msg)
-            msg = f"💥 **[FalixNodes] 运行崩溃**\n\n**错误:** `{str(e)}`"
-            send_telegram_message(msg)
+            try:
+                page.screenshot(path=screenshot_path, full_page=False)
+                msg = f"💥 **[FalixNodes] 运行崩溃**\n\n**错误:** `{str(e)}`"
+                send_telegram_message(msg, screenshot_path=screenshot_path)
+            except:
+                msg = f"💥 **[FalixNodes] 运行崩溃**\n\n**错误:** `{str(e)}`"
+                send_telegram_message(msg)
             exit(1)
         finally:
             browser.close()
