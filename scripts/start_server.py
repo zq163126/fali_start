@@ -41,10 +41,9 @@ def main():
         print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
-    # 接口地址（根据面板的实际 API 路径调整，通常开机动作为 POST 请求）
-    api_url = f"https://client.falixnodes.net/server/{server_id}/action"  # 如果路径不同可在这里微调
+    api_url = f"https://client.falixnodes.net/server/{server_id}/action"
     
-    # 基础请求头，必须带上 Cookie 以及模拟浏览器的 User-Agent 和 Referer
+    # 确保 Cookie 准确无误地注入到请求头中
     headers = {
         "Cookie": cookie_str,
         "Content-Type": "application/json",
@@ -79,7 +78,6 @@ def main():
                 print(f"📥 [Step 1] 收到服务器响应: {response_body_1}")
                 response_data_1 = json.loads(response_body_1)
         except urllib.error.HTTPError as e:
-            # 有时候服务器返回 challenge 时会伴随 400/422 等状态码，我们需要读取它的错误返回体
             error_body = e.read().decode("utf-8")
             print(f"📥 [Step 1] 捕获到 HTTP 响应 (状态码 {e.code}): {error_body}")
             try:
@@ -96,11 +94,9 @@ def main():
         # ==================== 第二步：解析 Challenge 并二次提交 ====================
         challenge_token = None
         if response_data_1:
-            # 尝试从常见的字段中提取 challenge 凭证
             challenge_token = response_data_1.get("challenge") or response_data_1.get("token") or response_data_1.get("data", {}).get("challenge")
 
         if not challenge_token:
-            # 如果结构不同，尝试在整个文本里匹配或抛出错误
             print(f"⚠️ [Step 1] 未能自动提取到 challenge 字段，完整返回内容: {response_data_1}")
             msg = f"❌ *[FalixNodes] 开机失败*\n\n未能在第一步响应中找到 challenge 凭证。\n返回数据: `{str(response_data_1)[:200]}`"
             send_telegram_message(msg)
@@ -127,7 +123,6 @@ def main():
             response_body_2 = res2.read().decode("utf-8")
             print(f"📥 [Step 2] 服务器最终响应: {response_body_2}")
             
-            # 校验最终结果
             success_msg = f"🚀 *[FalixNodes] 两阶段 API 开机成功*\n\n服务器 ID: `{server_id}`\n已通过 Challenge 验证并成功触发开机！"
             print("🎉 开机指令完整交互成功！")
             send_telegram_message(success_msg)
