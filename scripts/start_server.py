@@ -1,6 +1,6 @@
 import os
 import time
-from playwright.sync_api import sync_playwright
+from curl_cffi import requests
 
 def main():
     cookie = os.environ.get("FALIX_WEB_COOKIE")
@@ -10,96 +10,85 @@ def main():
         print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
-    console_url = f"https://client.falixnodes.net/server/{server_id}/console"
+    url = f"https://client.falixnodes.net/api/v1/servers/{server_id}/console/power"
     
-    # 解析 Cookie 字符串并转换为 Playwright 格式
-    cookies = []
-    for item in cookie.split(";"):
-        if "=" in item:
-            name, value = item.strip().split("=", 1)
-            cookies.append({
-                "name": name,
-                "value": value,
-                "domain": ".falixnodes.net",
-                "path": "/"
-            })
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "cache-control": "no-cache",
+        "content-type": "application/json",
+        "cookie": cookie,
+        "pragma": "no-cache",
+        "referer": f"https://client.falixnodes.net/server/{server_id}/console",
+        "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+    }
 
-    print("🚀 正在启动无头浏览器...")
-    with sync_playwright() as p:
-        # 启动 Chromium，不使用无头模式可以注释掉 headless=True（但在 CI 里必须为 True）
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
+    print(f"DEBUG: 正在请求 URL -> {url}")
+    session = requests.Session()
+    
+    print("=== 发送初始开机请求 ===")
+    payload = {
+        "action": "start",
+        "token": "",
+        "update": None,
+        "node_id": 5056
+    }
+    
+    resp = session.post(url, json=payload, headers=headers, impersonate="chrome120")
+    print("Status:", resp.status_code)
+    print("Response Text:", resp.text)
+    
+    try:
+        data = resp.json()
+    except Exception as e:
+        print(f"❌ 响应无法解析为 JSON: {e}")
+        exit(1)
         
-        # 注入 Cookie
-        context.add_cookies(cookies)
-        
-        page = context.new_page()
-        print(f"📄 正在打开控制台页面: {console_url}")
-        
-        try:
-            # 访问页面并等待网络空闲，确保广告 SDK 和控制台完全加载
-            page.goto(console_url, wait_until="networkidle", timeout=60000)
-        except Exception as e:
-            print(f"⚠️ 页面加载超时或警告: {e}")
+    # 情况 1：如果没有触发 ad 错误，说明当前无广告，直接成功！
+    if "error" not in data or data.get("error") is None or data.get("success") is True:
+        print("🚀 当前无广告拦截，服务器已成功直接拉起！")
+        return
 
-        time.sleep(3) # 留出时间让广告脚本和初始化加载完成
+    # 情况 2：触发了 ad 挑战
+    if data.get("error") == "ad":
+        challenge = data.get("challenge")
+        print(f"⚠️ 检测到广告挑战，获取到的 Challenge: {challenge}")
         
-        print("🔍 正在寻找并点击‘启动’按钮...")
+        print("等待 1 秒...")
+        time.sleep(1)
         
-        # 尝试通过常见的文本或选择器寻找开机/启动按钮
-        # 你可以根据实际网页上的按钮文本（如 "Start", "开机", "启动"）调整定位器
-        start_button_selectors = [
-            "button:has-text('Start')",
-            "button:has-text('启动')",
-            "button:has-text('开机')",
-            "[data-icon='play']",
-            ".fa-play"
-        ]
-        
-        clicked = False
-        for selector in start_button_selectors:
+        # 尝试带上 NOADDETECTED 或者真实 challenge 再次请求
+        # 这里我们可以优先尝试你提到的成功经验："NOADDETECTED"，如果不行也可以用获取到的 challenge
+        for test_token in ["NOADDETECTED", challenge]:
+            print(f"=== 尝试使用 Token 绕过: {test_token} ===")
+            retry_payload = {
+                "action": "start",
+                "token": test_token,
+                "update": None,
+                "node_id": 5056
+            }
+            
+            resp_retry = session.post(url, json=retry_payload, headers=headers, impersonate="chrome120")
+            print("Retry Status:", resp_retry.status_code)
+            print("Retry Response Text:", resp_retry.text)
+            
             try:
-                btn = page.locator(selector).first
-                if btn.is_visible(timeout=3000):
-                    btn.click()
-                    print(f"✅ 成功点击启动按钮 (匹配选择器: {selector})")
-                    clicked = True
-                    break
-            except Exception:
+                data_retry = resp_retry.json()
+            except:
                 continue
                 
-        if not clicked:
-            print("⚠️ 未能通过选择器自动找到按钮，尝试直接执行 JS 触发开机逻辑...")
-            # 也可以在这里通过 fetch 脚本在已有页面上下文中直接跑，此时页面已经加载了所有广告埋点
-            page.evaluate(f"""
-                async () => {{
-                    const res = await fetch('/api/v1/servers/{server_id}/console/power', {{
-                        method: 'POST',
-                        headers: {{ 'Content-Type': 'application/json' }},
-                        body: JSON.stringify({{ action: 'start', token: '', update: null, node_id: 5056 }})
-                    }});
-                    const data = await res.json();
-                    if (data.challenge) {{
-                        // 如果有 challenge，自动请求第二步
-                        await fetch('/api/v1/servers/{server_id}/console/power', {{
-                            method: 'POST',
-                            headers: {{ 'Content-Type': 'application/json' }},
-                            body: JSON.stringify({{ action: 'start', token: data.challenge, update: null, node_id: 5056 }})
-                        }});
-                    }}
-                }}
-            """)
-        
-        # 等待几秒观察结果
-        time.sleep(5)
-        print("📸 当前页面截图保存为 debug.png")
-        page.screenshot(path="debug.png")
-        
-        browser.close()
-        print("🚀 流程执行完毕！")
+            if data_retry.get("success") is True or "error" not in data_retry or data_retry.get("error") is None:
+                print(f"🚀 使用 token [{test_token}] 成功绕过并拉起服务器！")
+                return
+
+    print("❌ 所有开机尝试均被拒绝。")
+    exit(1)
 
 if __name__ == "__main__":
     main()
