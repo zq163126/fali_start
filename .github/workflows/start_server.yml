@@ -24,6 +24,9 @@ jobs:
         run: |
           pip install playwright
           playwright install chromium
+          
+      - name: Install system fonts for rendering
+        run: sudo apt-get update && sudo apt-get install -y fonts-liberation libnss3
 
       - name: 启用 WARP 网络
         uses: fscarmen/warp-on-actions@v1.3
