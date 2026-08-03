@@ -4,7 +4,7 @@ from curl_cffi import requests
 
 def main():
     cookie = os.environ.get("FALIX_WEB_COOKIE")
-    server_id = os.environ.get("FALIX_SERVER_ID", "2874150")
+    server_id = os.environ.get("FALIX_SERVER_ID") or "2874150"
     
     if not cookie:
         print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
