@@ -96,7 +96,7 @@ jobs:
               print("❌ 未能获取到 challenge，开机失败。")
               exit(1)
               
-          print(- * 30)
+          print("-" * 30)
           print(f"成功获取 Challenge: {challenge}")
           print("等待 1 秒...")
           time.sleep(1)
