@@ -2,13 +2,14 @@ import os
 import json
 import urllib.request
 import urllib.error
+import http.cookiejar
 
 def send_telegram_message(text):
-    """独立的 Telegram 消息发送模块（纯 urllib，无第三方依赖）"""
+    """独立的 Telegram 消息发送模块"""
     tg_token = os.environ.get("TG_BOT_TOKEN")
     chat_id = os.environ.get("TG_CHAT_ID")
     if not tg_token or not chat_id:
-        print("ℹ️ 未配置 Telegram 环境变量 (TG_BOT_TOKEN / TG_CHAT_ID)，跳过通知发送。")
+        print("ℹ️ 未配置 Telegram 环境变量，跳过通知发送。")
         return
         
     url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
@@ -28,8 +29,6 @@ def send_telegram_message(text):
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status == 200:
                 print("📬 [Telegram] 消息发送成功。")
-            else:
-                print(f"📬 [Telegram] 消息发送失败，状态码: {response.status}")
     except Exception as e:
         print(f"📬 [Telegram] 请求发生网络错误: {e}")
 
@@ -41,11 +40,30 @@ def main():
         print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
-    api_url = f"https://client.falixnodes.net/server/{server_id}/action"
+    # 修正 API 路径（Pterodactyl面板通常的控制动作接口）
+    api_url = f"https://client.falixnodes.net/api/client/servers/{server_id}/startup"
     
-    # 确保 Cookie 准确无误地注入到请求头中
+    # 使用 CookieJar 完美管理和注入环境变量中的 Cookie
+    cj = http.cookiejar.CookieJar()
+    for item in cookie_str.split(";"):
+        if "=" in item:
+            parts = item.strip().split("=", 1)
+            if len(parts) == 2:
+                name, value = parts
+                cookie = http.cookiejar.Cookie(
+                    version=0, name=name.strip(), value=value.strip(),
+                    port=None, port_specified=False,
+                    domain="client.falixnodes.net", domain_specified=True, domain_initial_dot=False,
+                    path="/", path_specified=True,
+                    secure=True, expires=None, discard=True,
+                    comment=None, comment_url=None, rest=None
+                )
+                cj.set_cookie(cookie)
+
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    urllib.request.install_opener(opener)
+
     headers = {
-        "Cookie": cookie_str,
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": f"https://client.falixnodes.net/server/{server_id}/console",
@@ -63,7 +81,7 @@ def main():
             "node_id": 5056
         }
         
-        print("📤 [Step 1] 正在发送初始 POST 请求 (空 Token)...")
+        print(f"📤 [Step 1] 正在向 {api_url} 发送初始 POST 请求 (空 Token)...")
         req1 = urllib.request.Request(
             api_url, 
             data=json.dumps(payload_step1).encode("utf-8"), 
@@ -85,7 +103,6 @@ def main():
             except:
                 raise e
 
-        # 检查是否直接成功
         if response_data_1 and (response_data_1.get("success") == True or response_data_1.get("status") == "success"):
             print("🎉 [Step 1] 一次请求直接开机成功！")
             send_telegram_message(f"🚀 *[FalixNodes] 开机成功*\n\n服务器 ID: `{server_id}` (直接通过初探请求成功)")
