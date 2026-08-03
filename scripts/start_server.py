@@ -20,12 +20,10 @@ def send_telegram_message(text, screenshot_path=None):
             boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
             body = bytearray()
             
-            # 添加 chat_id 字段
             body.extend(f"--{boundary}\r\n".encode("utf-8"))
             body.extend(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
             body.extend(f"{chat_id}\r\n".encode("utf-8"))
             
-            # 添加 caption 字段
             body.extend(f"--{boundary}\r\n".encode("utf-8"))
             body.extend(b'Content-Disposition: form-data; name="caption"\r\n\r\n')
             body.extend(text.encode("utf-8"))
@@ -34,7 +32,6 @@ def send_telegram_message(text, screenshot_path=None):
             body.extend(b'Content-Disposition: form-data; name="parse_mode"\r\n\r\n')
             body.extend(b"Markdown\r\n")
             
-            # 添加 photo 文件
             body.extend(f"--{boundary}\r\n".encode("utf-8"))
             body.extend(b'Content-Disposition: form-data; name="photo"; filename="screenshot.png"\r\n')
             body.extend(b"Content-Type: image/png\r\n\r\n")
@@ -110,7 +107,7 @@ def main():
     server_id = os.environ.get("FALIX_SERVER_ID") or "2874150"
     
     if not cookie_str:
-        print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
+        print("❌ 错误: 未设置 FALISS_WEB_COOKIE 环境变量" if "FALISS" else "❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
         exit(1)
 
     console_url = f"https://client.falixnodes.net/server/{server_id}/console"
@@ -121,8 +118,12 @@ def main():
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
+        
+        # 强制设置 locale 为英文 ("en-US")，并将时区等环境配置为英文习惯
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
+            locale="en-US",
+            timezone_id="America/New_York",
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
         )
 
@@ -159,20 +160,19 @@ def main():
             
             start_btn = page.locator("button.console-btn.start").filter(has_text="启动")
             if not start_btn.count():
-                start_btn = page.locator("//button[contains(@class, 'console-btn') and contains(@class, 'start') and .//span[text()='启动']]")
+                start_btn = page.locator("//button[contains(@class, 'console-btn') and contains(@class, 'start') and (.//span[text()='启动'] or .//span[text()='Start'])]")
 
             if start_btn.count() > 0:
                 start_btn.first.click(force=True, timeout=10000)
                 print("🚀 成功触发 START 按钮点击！")
                 
-                # 等待 4 秒让页面响应并更新状态
                 time.sleep(4)
                 
-                # 截图保存
+                # 截图保存发送
                 page.screenshot(path=screenshot_path, full_page=False)
                 print(f"📸 已成功生成截图: {screenshot_path}")
                 
-                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已通过鲁棒性选择器点击 `START` 按钮，请查看附带的实时截图以确认状态。"
+                msg = f"🚀 **[FalixNodes] 网页自动化开机已点击 (英文模式)**\n\n**服务器 ID:** `{server_id}`\n**动作:** 已强制切换英文环境并点击 `START` 按钮，请查看附带截图确认验证码弹窗状态。"
                 send_telegram_message(msg, screenshot_path=screenshot_path)
             else:
                 print("❌ 未能在页面上找到 START 按钮元素。")
