@@ -1,0 +1,84 @@
+import os
+import time
+from curl_cffi import requests
+
+def main():
+    cookie = os.environ.get("FALIX_WEB_COOKIE")
+    server_id = os.environ.get("FALIX_SERVER_ID", "2874150")
+    
+    if not cookie:
+        print("❌ 错误: 未设置 FALIX_WEB_COOKIE 环境变量")
+        exit(1)
+
+    url = f"https://client.falixnodes.net/api/v1/servers/{server_id}/console/power"
+    
+    headers = {
+        "accept": "*/*",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en-US;q=0.7",
+        "cookie": cookie,
+        "referer": f"https://client.falixnodes.net/server/{server_id}/console",
+        "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+        "content-type": "application/json"
+    }
+
+    print("=== 第一步：请求 Challenge (伪造真实 Chrome TLS 指纹) ===")
+    step1_payload = {
+        "action": "start",
+        "token": "",
+        "update": None,
+        "node_id": 5056
+    }
+    
+    resp1 = requests.post(url, json=step1_payload, headers=headers, impersonate="chrome120")
+    print("Status:", resp1.status_code)
+    print("Response:", resp1.text)
+    
+    try:
+        data1 = resp1.json()
+    except Exception as e:
+        print("❌ 响应不是有效的 JSON，可能被 Cloudflare 拦截页面阻断。")
+        exit(1)
+        
+    challenge = data1.get("challenge")
+    
+    if not challenge:
+        print("❌ 未能获取到 challenge，开机失败。")
+        exit(1)
+        
+    print("-" * 30)
+    print(f"成功获取 Challenge: {challenge}")
+    print("等待 1 秒...")
+    time.sleep(1)
+    
+    print("=== 第二步：带 Challenge 发送启动指令 ===")
+    step2_payload = {
+        "action": "start",
+        "token": challenge,
+        "update": None,
+        "node_id": 5056
+    }
+    
+    resp2 = requests.post(url, json=step2_payload, headers=headers, impersonate="chrome120")
+    print("Status:", resp2.status_code)
+    print("Response:", resp2.text)
+    
+    try:
+        data2 = resp2.json()
+    except Exception as e:
+        print("❌ 第二步响应解析失败。")
+        exit(1)
+
+    if data2.get("success") is True:
+        print("🚀 服务器已成功拉起！")
+    else:
+        print("❌ 启动被拒绝。")
+        exit(1)
+
+if __name__ == "__main__":
+    main()
